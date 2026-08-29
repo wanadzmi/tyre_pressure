@@ -4,6 +4,28 @@ A landscape Flutter application for displaying tyre pressure and temperature
 from an aftermarket USB TPMS kit. It is currently designed around a 2018
 Perodua Axia and a CH340-based Android USB receiver.
 
+## Screenshots
+
+### Live dashboard
+
+Pressure, temperature, health colour, and last-update information arranged
+around the vehicle.
+
+![TPMS dashboard showing all four tyre readings](assets/Screenshots/ss1.png)
+
+### Dongle and tyre-position settings
+
+USB connection status and the visual sensor-to-position mapping.
+
+![USB dongle and tyre-position settings](assets/Screenshots/ss2.png)
+
+### Units and alarm thresholds
+
+Pressure and temperature units, slider and arrow adjustments, and the low
+battery alarm.
+
+![TPMS unit and alarm settings](assets/Screenshots/ss3.png)
+
 ## Current features
 
 - Automatically connects to the USB TPMS dongle when the Android app starts.
