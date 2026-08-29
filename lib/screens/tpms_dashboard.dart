@@ -28,6 +28,7 @@ class _TpmsDashboardState extends State<TpmsDashboard> {
   static const _highPressureKey = 'alarm_high_pressure_kpa';
   static const _lowPressureKey = 'alarm_low_pressure_kpa';
   static const _lowBatteryAlarmKey = 'alarm_low_battery_enabled';
+  static const _tirePositionKeyPrefix = 'tire_position_';
 
   late final bool _isDesignPreview =
       kIsWeb || defaultTargetPlatform != TargetPlatform.android;
@@ -38,12 +39,13 @@ class _TpmsDashboardState extends State<TpmsDashboard> {
   StreamSubscription<TireTelemetry>? _subscription;
   StreamSubscription<String>? _statusSubscription;
   Timer? _relativeTimeTimer;
-  bool _isConnected = false;
-  String _status = 'Connect the TPMS dongle to begin';
-  String? _error;
+  final ValueNotifier<TpmsConnectionStatus> _connectionStatus = ValueNotifier(
+    const TpmsConnectionStatus(message: 'Starting TPMS dongle connection...'),
+  );
   PressureUnit _pressureUnit = PressureUnit.psi;
   TemperatureUnit _temperatureUnit = TemperatureUnit.celsius;
   TpmsAlarmSettings _alarmSettings = const TpmsAlarmSettings();
+  Map<String, String> _tirePositions = Map.of(myTires);
   final Set<String> _activeAlarmKeys = {};
   final List<_AlarmMessage> _pendingAlarms = [];
   bool _alarmDialogVisible = false;
@@ -54,22 +56,29 @@ class _TpmsDashboardState extends State<TpmsDashboard> {
     _loadPressureUnit();
     _loadTemperatureUnit();
     _loadAlarmSettings();
+    _loadTirePositions();
     _subscription = _tpmsService.updates.listen(
       _handleReading,
       onError: (Object error) {
         if (mounted) {
-          setState(() => _error = error.toString());
+          _connectionStatus.value = TpmsConnectionStatus(
+            message: error.toString(),
+            hasError: true,
+          );
         }
       },
     );
     _statusSubscription = _tpmsService.status.listen((status) {
-      if (mounted) setState(() => _status = status);
+      _connectionStatus.value = TpmsConnectionStatus(
+        message: status,
+        isConnected: _connectionStatus.value.isConnected,
+      );
     });
     _relativeTimeTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && _readings.isNotEmpty) setState(() {});
     });
     if (widget.autoStart) {
-      Future.microtask(_toggleConnection);
+      Future.microtask(_startConnection);
     }
   }
 
@@ -171,6 +180,54 @@ class _TpmsDashboardState extends State<TpmsDashboard> {
     }
   }
 
+  Future<void> _loadTirePositions() async {
+    try {
+      final preferences = SharedPreferencesAsync();
+      final loaded = <String, String>{};
+      for (final sensorId in myTires.keys) {
+        loaded[sensorId] =
+            await preferences.getString('$_tirePositionKeyPrefix$sensorId') ??
+            myTires[sensorId]!;
+      }
+      if (loaded.values.toSet().length == myTires.length && mounted) {
+        _applyTirePositions(loaded);
+      }
+    } catch (error) {
+      debugPrint('[TPMS] Could not load tyre positions: $error');
+    }
+  }
+
+  Future<void> _setTirePositions(Map<String, String> positions) async {
+    _applyTirePositions(positions);
+    try {
+      final preferences = SharedPreferencesAsync();
+      await Future.wait([
+        for (final entry in positions.entries)
+          preferences.setString(
+            '$_tirePositionKeyPrefix${entry.key}',
+            entry.value,
+          ),
+      ]);
+    } catch (error) {
+      debugPrint('[TPMS] Could not save tyre positions: $error');
+    }
+  }
+
+  void _applyTirePositions(Map<String, String> positions) {
+    setState(() {
+      _tirePositions = Map.of(positions);
+      for (final entry in _readings.entries.toList()) {
+        _readings[entry.key] = _withPosition(
+          entry.value,
+          _tirePositions[entry.key]!,
+        );
+      }
+    });
+    for (final reading in _readings.values) {
+      _evaluateAlarms(reading);
+    }
+  }
+
   Future<void> _openSettings() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -181,6 +238,10 @@ class _TpmsDashboardState extends State<TpmsDashboard> {
           onTemperatureUnitChanged: _setTemperatureUnit,
           alarmSettings: _alarmSettings,
           onAlarmSettingsChanged: _setAlarmSettings,
+          connectionStatus: _connectionStatus,
+          onRetryConnection: _startConnection,
+          tirePositions: _tirePositions,
+          onTirePositionsChanged: _setTirePositions,
         ),
       ),
     );
@@ -240,9 +301,26 @@ class _TpmsDashboardState extends State<TpmsDashboard> {
 
   void _handleReading(TireTelemetry reading) {
     if (!mounted) return;
-    setState(() => _readings[reading.sensorId] = reading);
-    _evaluateAlarms(reading);
+    final positionedReading = _withPosition(
+      reading,
+      _tirePositions[reading.sensorId] ?? reading.position,
+    );
+    setState(() => _readings[reading.sensorId] = positionedReading);
+    _evaluateAlarms(positionedReading);
   }
+
+  TireTelemetry _withPosition(TireTelemetry reading, String position) =>
+      TireTelemetry(
+        sensorId: reading.sensorId,
+        position: position,
+        pressureKpa: reading.pressureKpa,
+        temperatureC: reading.temperatureC,
+        lastUpdated: reading.lastUpdated,
+        batteryPercent: reading.batteryPercent,
+        lowBattery: reading.lowBattery,
+        leakage: reading.leakage,
+        noSignal: reading.noSignal,
+      );
 
   void _evaluateAlarms(TireTelemetry reading) {
     final pressure = _pressureUnit.format(reading.pressureKpa);
@@ -314,24 +392,27 @@ class _TpmsDashboardState extends State<TpmsDashboard> {
     });
   }
 
-  Future<void> _toggleConnection() async {
-    final shouldConnect = !_isConnected;
-    setState(() {
-      _isConnected = shouldConnect;
-      _error = null;
-    });
+  Future<void> _startConnection() async {
+    if (_connectionStatus.value.isConnected) return;
+    _connectionStatus.value = const TpmsConnectionStatus(
+      message: 'Looking for TPMS USB dongle...',
+    );
     try {
-      if (shouldConnect) {
-        await _tpmsService.start();
-      } else {
-        await _tpmsService.stop();
+      await _tpmsService.start();
+      if (mounted) {
+        _connectionStatus.value = TpmsConnectionStatus(
+          message: _isDesignPreview
+              ? 'Design preview · simulated TPMS data'
+              : 'Dongle connected; waiting for sensors',
+          isConnected: true,
+        );
       }
     } catch (error) {
       if (mounted) {
-        setState(() {
-          _isConnected = false;
-          _error = '$error';
-        });
+        _connectionStatus.value = TpmsConnectionStatus(
+          message: '$error',
+          hasError: true,
+        );
       }
     }
   }
@@ -342,6 +423,7 @@ class _TpmsDashboardState extends State<TpmsDashboard> {
     _statusSubscription?.cancel();
     _relativeTimeTimer?.cancel();
     _tpmsService.dispose();
+    _connectionStatus.dispose();
     super.dispose();
   }
 
@@ -382,21 +464,13 @@ class _TpmsDashboardState extends State<TpmsDashboard> {
                 padding: EdgeInsets.all(padding),
                 child: Column(
                   children: [
-                    if (!_isDesignPreview) ...[
-                      _ConnectionBar(
-                        isConnected: _isConnected,
-                        status: _status,
-                        error: _error,
-                        onPressed: _toggleConnection,
-                      ),
-                      SizedBox(height: padding),
-                    ],
                     Expanded(
                       child: _VehicleTpmsLayout(
                         readings: _readings,
                         pressureUnit: _pressureUnit,
                         temperatureUnit: _temperatureUnit,
                         alarmSettings: _alarmSettings,
+                        tirePositions: _tirePositions,
                       ),
                     ),
                   ],
@@ -416,18 +490,20 @@ class _VehicleTpmsLayout extends StatelessWidget {
     required this.pressureUnit,
     required this.temperatureUnit,
     required this.alarmSettings,
+    required this.tirePositions,
   });
 
   final Map<String, TireTelemetry> readings;
   final PressureUnit pressureUnit;
   final TemperatureUnit temperatureUnit;
   final TpmsAlarmSettings alarmSettings;
+  final Map<String, String> tirePositions;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       const gap = 10.0;
-      final imageWidth = (constraints.maxHeight * 2 / 3).clamp(
+      final imageWidth = (constraints.maxHeight * 0.62).clamp(
         120.0,
         constraints.maxWidth * 0.42,
       );
@@ -442,18 +518,23 @@ class _VehicleTpmsLayout extends StatelessWidget {
       final sideInset = calculatedInset < 0 ? 0.0 : calculatedInset;
       final verticalInset = constraints.maxHeight * 0.06;
 
-      Widget reading(String sensorId, {required bool isLeft}) => SizedBox(
-        width: readingWidth,
-        height: readingHeight,
-        child: _TireReading(
-          position: myTires[sensorId]!,
-          reading: readings[sensorId],
-          pressureUnit: pressureUnit,
-          temperatureUnit: temperatureUnit,
-          alarmSettings: alarmSettings,
-          isLeft: isLeft,
-        ),
-      );
+      Widget reading(String position, {required bool isLeft}) {
+        final sensorId = tirePositions.entries
+            .firstWhere((entry) => entry.value == position)
+            .key;
+        return SizedBox(
+          width: readingWidth,
+          height: readingHeight,
+          child: _TireReading(
+            position: position,
+            reading: readings[sensorId],
+            pressureUnit: pressureUnit,
+            temperatureUnit: temperatureUnit,
+            alarmSettings: alarmSettings,
+            isLeft: isLeft,
+          ),
+        );
+      }
 
       return Stack(
         alignment: Alignment.center,
@@ -467,7 +548,7 @@ class _VehicleTpmsLayout extends StatelessWidget {
                   child: Transform.flip(
                     flipX: true,
                     child: Image.asset(
-                      'assets/axia-bird-viewX.png',
+                      carImageAsset,
                       fit: BoxFit.contain,
                       semanticLabel: 'Top view of the car',
                     ),
@@ -479,62 +560,26 @@ class _VehicleTpmsLayout extends StatelessWidget {
           Positioned(
             left: sideInset,
             top: verticalInset,
-            child: reading('05EFEFF1', isLeft: true),
+            child: reading('Front-Left', isLeft: true),
           ),
           Positioned(
             right: sideInset,
             top: verticalInset,
-            child: reading('02F05A72', isLeft: false),
+            child: reading('Front-Right', isLeft: false),
           ),
           Positioned(
             left: sideInset,
             bottom: verticalInset,
-            child: reading('02F00EA8', isLeft: true),
+            child: reading('Rear-Left', isLeft: true),
           ),
           Positioned(
             right: sideInset,
             bottom: verticalInset,
-            child: reading('01EFB068', isLeft: false),
+            child: reading('Rear-Right', isLeft: false),
           ),
         ],
       );
     },
-  );
-}
-
-class _ConnectionBar extends StatelessWidget {
-  const _ConnectionBar({
-    required this.isConnected,
-    required this.status,
-    required this.error,
-    required this.onPressed,
-  });
-
-  final bool isConnected;
-  final String status;
-  final String? error;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      FilledButton.icon(
-        onPressed: onPressed,
-        icon: Icon(isConnected ? Icons.usb_off : Icons.usb),
-        label: Text(isConnected ? 'Disconnect' : 'Connect dongle'),
-      ),
-      const SizedBox(width: 12),
-      Expanded(
-        child: Text(
-          error ?? status,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: error == null
-              ? null
-              : TextStyle(color: Theme.of(context).colorScheme.error),
-        ),
-      ),
-    ],
   );
 }
 
@@ -579,7 +624,10 @@ class _TireReading extends StatelessWidget {
               reading == null
                   ? '-- ${pressureUnit.label}'
                   : pressureUnit.format(reading!.pressureKpa),
-              style: Theme.of(context).textTheme.headlineSmall,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: _statusColor(context),
+                fontWeight: FontWeight.bold,
+              ),
             ),
             Text(
               reading == null

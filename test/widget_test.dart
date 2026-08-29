@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart' show Size;
+import 'package:flutter/material.dart' show Offset, Scrollable, Size, ValueKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tyre_pressure/config/tire_config.dart';
 import 'package:tyre_pressure/main.dart';
@@ -97,7 +97,8 @@ void main() {
     );
     expect(find.text('Front-Left'), findsNothing);
     expect(find.text('Front-Right'), findsNothing);
-    expect(find.text('Connect dongle'), findsOneWidget);
+    expect(find.text('Connect dongle'), findsNothing);
+    expect(find.text('Starting TPMS dongle connection...'), findsNothing);
     expect(find.text('-- PSI'), findsWidgets);
     expect(find.byTooltip('Settings'), findsOneWidget);
   });
@@ -112,6 +113,56 @@ void main() {
 
     expect(find.text('TPMS warning'), findsOneWidget);
     expect(find.text('Acknowledge'), findsOneWidget);
+  });
+
+  testWidgets('shows USB status and retry inside settings', (tester) async {
+    await tester.pumpWidget(
+      const TpmsApp(home: TpmsDashboard(autoStart: false)),
+    );
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('USB dongle'), findsOneWidget);
+    expect(find.text('Starting TPMS dongle connection...'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+
+    final increaseTemperature = find.byTooltip('Increase High temperature');
+    await tester.drag(find.byType(Scrollable), const Offset(0, -500));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(increaseTemperature);
+    await tester.tap(increaseTemperature);
+    await tester.pump();
+    expect(find.text('76.0 °C'), findsOneWidget);
+  });
+
+  testWidgets('tyre positions can be previewed and confirmed with arrows', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const TpmsApp(home: TpmsDashboard(autoStart: false)),
+    );
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+
+    final frontLeft = find.byKey(const ValueKey('position-FL'));
+    await tester.ensureVisible(frontLeft);
+    await tester.tap(frontLeft);
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('move-right')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('move-down')));
+    await tester.pump();
+    final confirm = find.text('OK');
+    await tester.ensureVisible(confirm);
+    await tester.tap(confirm);
+    await tester.pump();
+    await tester.drag(find.byType(Scrollable), const Offset(0, 400));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('mapping-FL-01EFB068')), findsOneWidget);
+    expect(find.byKey(const ValueKey('mapping-FR-02F05A72')), findsOneWidget);
+    expect(find.byKey(const ValueKey('mapping-RR-05EFEFF1')), findsOneWidget);
   });
 
   for (final size in [const Size(1024, 600), const Size(640, 360)]) {
