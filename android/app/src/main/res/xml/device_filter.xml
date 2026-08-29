@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- QinHeng CH340/CH341 USB serial adapter: 0x1A86 / 0x7523 -->
+    <usb-device vendor-id="6790" product-id="29987" />
+</resources>
