@@ -86,21 +86,59 @@ class TpmsUsbService {
   void _handleBytes(Uint8List bytes) {
     debugPrint('[TPMS-USB] RX ${bytes.length} bytes: ${_toHex(bytes)}');
     _receiveBuffer.addAll(bytes);
-    if (_receiveBuffer.length > 512) {
-      _receiveBuffer.removeRange(0, _receiveBuffer.length - 512);
+    _processBufferedFrames();
+  }
+
+  void _processBufferedFrames() {
+    while (_receiveBuffer.length >= 3) {
+      final header = _findHeader();
+      if (header < 0) {
+        _receiveBuffer.clear();
+        return;
+      }
+      if (header > 0) _receiveBuffer.removeRange(0, header);
+
+      final frameLength = _receiveBuffer[2];
+      if (frameLength < 4 || frameLength > 64) {
+        _receiveBuffer.removeAt(0);
+        continue;
+      }
+      if (_receiveBuffer.length < frameLength) return;
+
+      final frame = _receiveBuffer.sublist(0, frameLength);
+      _receiveBuffer.removeRange(0, frameLength);
+      final telemetry = _parser.parse(frame);
+      if (telemetry == null) {
+        debugPrint('[TPMS-USB] Ignored invalid/unsupported frame: ${_toHex(frame)}');
+        continue;
+      }
+
+      debugPrint(
+        '[TPMS-USB] MATCH ${telemetry.position} (${telemetry.sensorId}) '
+        '${telemetry.pressureKpa.toStringAsFixed(1)} kPa / '
+        '${telemetry.pressurePsi.toStringAsFixed(1)} PSI, '
+        '${telemetry.temperatureC} C, status=${_statusText(telemetry)}',
+      );
+      _updates.add(telemetry);
     }
+  }
 
-    final telemetry = _parser.parse(_receiveBuffer);
-    if (telemetry == null) return;
+  int _findHeader() {
+    for (var i = 0; i < _receiveBuffer.length - 1; i++) {
+      if (_receiveBuffer[i] == 0x55 && _receiveBuffer[i + 1] == 0xAA) {
+        return i;
+      }
+    }
+    return -1;
+  }
 
-    debugPrint(
-      '[TPMS-USB] MATCH ${telemetry.position} (${telemetry.sensorId}) '
-      '${telemetry.pressureKpa.toStringAsFixed(0)} kPa / '
-      '${telemetry.pressurePsi.toStringAsFixed(1)} PSI, '
-      '${telemetry.temperatureC} C, ${telemetry.batteryPercent}% battery',
-    );
-    _receiveBuffer.clear();
-    _updates.add(telemetry);
+  String _statusText(TireTelemetry reading) {
+    final warnings = <String>[
+      if (reading.lowBattery) 'low battery',
+      if (reading.leakage) 'leakage',
+      if (reading.noSignal) 'no signal',
+    ];
+    return warnings.isEmpty ? 'OK' : warnings.join(', ');
   }
 
   Future<void> stop() async {

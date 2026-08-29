@@ -142,17 +142,26 @@ class _TireCard extends StatelessWidget {
                 : '${reading!.pressurePsi.toStringAsFixed(1)} PSI',
             style: Theme.of(context).textTheme.headlineSmall,
           ),
-          const SizedBox(height: 8),
-          Text(reading == null ? '-- °C' : '${reading!.temperatureC} °C'),
           Text(
             reading == null
-                ? '--% battery'
-                : '${reading!.batteryPercent}% battery',
+                ? '-- kPa'
+                : '${reading!.pressureKpa.toStringAsFixed(1)} kPa',
+            style: Theme.of(context).textTheme.titleMedium,
           ),
+          const SizedBox(height: 8),
+          Text(reading == null ? '-- °C' : '${reading!.temperatureC} °C'),
+          Text(reading == null ? 'Battery --' : _statusText(reading!)),
           const Spacer(),
           Text(reading == null ? 'Waiting for sensor' : 'Receiving data'),
         ],
       ),
     ),
   );
+
+  String _statusText(TireTelemetry reading) {
+    if (reading.noSignal) return 'No signal';
+    if (reading.leakage) return 'Leakage warning';
+    if (reading.lowBattery) return 'Low battery';
+    return 'Status OK';
+  }
 }

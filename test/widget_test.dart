@@ -24,6 +24,25 @@ void main() {
     expect(result?.batteryPercent, 100);
   });
 
+  test('parses an actual USB TPMS frame', () {
+    final result = const TpmsParser().parse([
+      0x55, 0xAA, 0x08, 0x00, 0x44, 0x5A, 0x00, 0xE9,
+    ]);
+    expect(result?.position, 'Front-Left');
+    expect(result?.sensorId, '05EFEFF1');
+    expect(result?.pressureKpa, closeTo(233.92, 0.001));
+    expect(result?.pressurePsi, closeTo(33.9273, 0.001));
+    expect(result?.temperatureC, 40);
+    expect(result?.lowBattery, isFalse);
+  });
+
+  test('rejects a USB frame with an invalid checksum', () {
+    final result = const TpmsParser().parse([
+      0x55, 0xAA, 0x08, 0x00, 0x44, 0x5A, 0x00, 0x00,
+    ]);
+    expect(result, isNull);
+  });
+
   test('contains all four configured sensors', () {
     expect(myTires, hasLength(4));
     expect(myTires['05EFEFF1'], 'Front-Left');
@@ -37,5 +56,7 @@ void main() {
     expect(find.text('Front-Left'), findsOneWidget);
     expect(find.text('Front-Right'), findsOneWidget);
     expect(find.text('Connect dongle'), findsOneWidget);
+    expect(find.text('-- PSI'), findsWidgets);
+    expect(find.text('-- kPa'), findsWidgets);
   });
 }
