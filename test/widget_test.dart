@@ -19,7 +19,10 @@ void main() {
     const settings = TpmsAlarmSettings();
     expect(settings.highTemperatureC, 75);
     expect(settings.highPressureKpa, 250);
-    expect(PressureUnit.psi.fromKpa(settings.lowPressureKpa), closeTo(26.1, 0.001));
+    expect(
+      PressureUnit.psi.fromKpa(settings.lowPressureKpa),
+      closeTo(26.1, 0.001),
+    );
     expect(settings.lowBatteryAlarmEnabled, isTrue);
     expect(settings.isHighTemperature(76), isTrue);
     expect(settings.isHighPressure(251), isTrue);
@@ -49,7 +52,14 @@ void main() {
 
   test('parses an actual USB TPMS frame', () {
     final result = const TpmsParser().parse([
-      0x55, 0xAA, 0x08, 0x00, 0x44, 0x5A, 0x00, 0xE9,
+      0x55,
+      0xAA,
+      0x08,
+      0x00,
+      0x44,
+      0x5A,
+      0x00,
+      0xE9,
     ]);
     expect(result?.position, 'Front-Left');
     expect(result?.sensorId, '05EFEFF1');
@@ -61,7 +71,14 @@ void main() {
 
   test('rejects a USB frame with an invalid checksum', () {
     final result = const TpmsParser().parse([
-      0x55, 0xAA, 0x08, 0x00, 0x44, 0x5A, 0x00, 0x00,
+      0x55,
+      0xAA,
+      0x08,
+      0x00,
+      0x44,
+      0x5A,
+      0x00,
+      0x00,
     ]);
     expect(result, isNull);
   });

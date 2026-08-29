@@ -158,10 +158,7 @@ class _TpmsDashboardState extends State<TpmsDashboard> {
     try {
       final preferences = SharedPreferencesAsync();
       await Future.wait([
-        preferences.setDouble(
-          _highTemperatureKey,
-          settings.highTemperatureC,
-        ),
+        preferences.setDouble(_highTemperatureKey, settings.highTemperatureC),
         preferences.setDouble(_highPressureKey, settings.highPressureKpa),
         preferences.setDouble(_lowPressureKey, settings.lowPressureKpa),
         preferences.setBool(
@@ -349,66 +346,68 @@ class _TpmsDashboardState extends State<TpmsDashboard> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      toolbarHeight: 52,
-      title: const Text('Tyre Pressure Monitor'),
-      actions: [
-        IconButton(
-          onPressed: _injectTestAlarms,
-          tooltip: 'Test all alarms',
-          icon: const Icon(Icons.science_outlined),
-        ),
-        IconButton(
-          onPressed: _openSettings,
-          tooltip: 'Settings',
-          icon: const Icon(Icons.settings),
-        ),
-        const SizedBox(width: 4),
-      ],
-    ),
-    body: DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF15191F), Color(0xFF090B0F), Color(0xFF030405)],
-          stops: [0, 0.55, 1],
-        ),
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        toolbarHeight: 52,
+
+        actions: [
+          IconButton(
+            onPressed: _injectTestAlarms,
+            tooltip: 'Test all alarms',
+            icon: const Icon(Icons.science_outlined),
+          ),
+          IconButton(
+            onPressed: _openSettings,
+            tooltip: 'Settings',
+            icon: const Icon(Icons.settings),
+          ),
+          const SizedBox(width: 4),
+        ],
       ),
-      child: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final padding = constraints.maxWidth < 700 ? 8.0 : 16.0;
-            return Padding(
-              padding: EdgeInsets.all(padding),
-              child: Column(
-                children: [
-                  if (!_isDesignPreview) ...[
-                    _ConnectionBar(
-                      isConnected: _isConnected,
-                      status: _status,
-                      error: _error,
-                      onPressed: _toggleConnection,
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF15191F), Color(0xFF090B0F), Color(0xFF030405)],
+            stops: [0, 0.55, 1],
+          ),
+        ),
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final padding = constraints.maxWidth < 700 ? 8.0 : 16.0;
+              return Padding(
+                padding: EdgeInsets.all(padding),
+                child: Column(
+                  children: [
+                    if (!_isDesignPreview) ...[
+                      _ConnectionBar(
+                        isConnected: _isConnected,
+                        status: _status,
+                        error: _error,
+                        onPressed: _toggleConnection,
+                      ),
+                      SizedBox(height: padding),
+                    ],
+                    Expanded(
+                      child: _VehicleTpmsLayout(
+                        readings: _readings,
+                        pressureUnit: _pressureUnit,
+                        temperatureUnit: _temperatureUnit,
+                        alarmSettings: _alarmSettings,
+                      ),
                     ),
-                    SizedBox(height: padding),
                   ],
-                  Expanded(
-                    child: _VehicleTpmsLayout(
-                      readings: _readings,
-                      pressureUnit: _pressureUnit,
-                      temperatureUnit: _temperatureUnit,
-                      alarmSettings: _alarmSettings,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
+                ),
+              );
+            },
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _VehicleTpmsLayout extends StatelessWidget {
