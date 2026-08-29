@@ -4,9 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:usb_serial/usb_serial.dart';
 
 import '../models/tire_telemetry.dart';
+import 'tpms_data_source.dart';
 import 'tpms_parser.dart';
 
-class TpmsUsbService {
+class TpmsUsbService implements TpmsDataSource {
   TpmsUsbService({TpmsParser parser = const TpmsParser()}) : _parser = parser;
 
   static const int vendorId = 0x1A86;
@@ -22,10 +23,18 @@ class TpmsUsbService {
   StreamSubscription<Uint8List>? _inputSubscription;
   StreamSubscription<UsbEvent>? _usbEventSubscription;
 
+  @override
   Stream<TireTelemetry> get updates => _updates.stream;
+  @override
   Stream<String> get status => _status.stream;
 
+  @override
   Future<void> start() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      throw UnsupportedError(
+        'Live USB readings require Android. iOS can preview the dashboard only.',
+      );
+    }
     if (_port != null) {
       _setStatus('Dongle already connected');
       return;
@@ -141,6 +150,7 @@ class TpmsUsbService {
     return warnings.isEmpty ? 'OK' : warnings.join(', ');
   }
 
+  @override
   Future<void> stop() async {
     await _inputSubscription?.cancel();
     _inputSubscription = null;
@@ -150,6 +160,7 @@ class TpmsUsbService {
     _setStatus('Dongle disconnected');
   }
 
+  @override
   Future<void> dispose() async {
     await stop();
     await _usbEventSubscription?.cancel();

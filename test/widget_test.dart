@@ -1,9 +1,32 @@
+import 'package:flutter/material.dart' show Size;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tyre_pressure/config/tire_config.dart';
 import 'package:tyre_pressure/main.dart';
+import 'package:tyre_pressure/models/pressure_unit.dart';
+import 'package:tyre_pressure/models/temperature_unit.dart';
+import 'package:tyre_pressure/models/tpms_alarm_settings.dart';
+import 'package:tyre_pressure/screens/tpms_dashboard.dart';
 import 'package:tyre_pressure/services/tpms_parser.dart';
 
 void main() {
+  test('formats supported temperature units', () {
+    expect(TemperatureUnit.celsius.format(40), '40 °C');
+    expect(TemperatureUnit.fahrenheit.format(40), '104.0 °F');
+    expect(TemperatureUnit.kelvin.format(40), '313.1 K');
+  });
+
+  test('uses requested default alarm thresholds', () {
+    const settings = TpmsAlarmSettings();
+    expect(settings.highTemperatureC, 75);
+    expect(settings.highPressureKpa, 250);
+    expect(PressureUnit.psi.fromKpa(settings.lowPressureKpa), closeTo(26.1, 0.001));
+    expect(settings.lowBatteryAlarmEnabled, isTrue);
+    expect(settings.isHighTemperature(76), isTrue);
+    expect(settings.isHighPressure(251), isTrue);
+    expect(settings.isLowPressure(170), isTrue);
+    expect(settings.shouldAlertLowBattery(true), isTrue);
+  });
+
   test('parses values relative to an ID inside a payload', () {
     final result = const TpmsParser().parse([
       0x12,
@@ -52,11 +75,45 @@ void main() {
   });
 
   testWidgets('shows the TPMS dashboard', (tester) async {
-    await tester.pumpWidget(const TpmsApp());
-    expect(find.text('Front-Left'), findsOneWidget);
-    expect(find.text('Front-Right'), findsOneWidget);
+    await tester.pumpWidget(
+      const TpmsApp(home: TpmsDashboard(autoStart: false)),
+    );
+    expect(find.text('Front-Left'), findsNothing);
+    expect(find.text('Front-Right'), findsNothing);
     expect(find.text('Connect dongle'), findsOneWidget);
     expect(find.text('-- PSI'), findsWidgets);
-    expect(find.text('-- kPa'), findsWidgets);
+    expect(find.byTooltip('Settings'), findsOneWidget);
   });
+
+  testWidgets('temporary alarm button shows a warning dialog', (tester) async {
+    await tester.pumpWidget(
+      const TpmsApp(home: TpmsDashboard(autoStart: false)),
+    );
+    await tester.tap(find.byTooltip('Test all alarms'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('TPMS warning'), findsOneWidget);
+    expect(find.text('Acknowledge'), findsOneWidget);
+  });
+
+  for (final size in [const Size(1024, 600), const Size(640, 360)]) {
+    testWidgets('has no overflow at ${size.width}x${size.height}', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        const TpmsApp(home: TpmsDashboard(autoStart: false)),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Front-Left'), findsNothing);
+      expect(find.text('Rear-Right'), findsNothing);
+    });
+  }
 }
